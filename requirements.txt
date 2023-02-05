@@ -5,4 +5,3 @@ mediapipe
 tensorflow
 tensorflow_hub
 protobuf==3.20.1
-https://github.com/isohrab/Pupil-locator.git
