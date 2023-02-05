@@ -296,6 +296,66 @@ def cut_image(image, start_point, end_point):
         eye = cv2_img[start[1]:end[1], start[0]:end[0], :]
         return eye
 
+
+def draw_point(image, iris_landmarks):
+    for i in range(iris_landmarks.shape[0]):
+        start = (int(iris_landmarks[i,0] * image.shape[1]),
+                 int(iris_landmarks[i,1] * image.shape[0]))
+        cv2.circle(image, start, 2, (255,0,0), -1)
+    return image
+#--------------
+def detect_iris(eye_frame, is_right_eye=False):
+    side_low = 64
+    eye_frame_low = cv2.resize(
+        eye_frame, (side_low, side_low), interpolation=cv2.INTER_AREA
+    )
+
+    model_path = "models/iris_landmark.tflite"
+
+    if is_right_eye:
+        eye_frame_low = np.fliplr(eye_frame_low)
+
+    outputs = tflite_inference(eye_frame_low / 127.5 - 1.0, model_path)
+    eye_contours_low = np.reshape(outputs[0], (71, 3))
+    iris_landmarks_low = np.reshape(outputs[1], (5, 3))
+
+    eye_contours = eye_contours_low / side_low
+    iris_landmarks = iris_landmarks_low / side_low
+
+    #st.write(iris_landmarks)
+
+    if is_right_eye:
+        eye_contours[:, 0] = 1 - eye_contours[:, 0]
+        iris_landmarks[:, 0] = 1 - iris_landmarks[:, 0]
+
+    return eye_contours, iris_landmarks
+
+def tflite_inference(inputs, model_path, dtype=np.float32):
+
+    if not isinstance(inputs, (list, tuple)):
+        inputs = (inputs,)
+
+    # Load the TFLite model and allocate tensors.
+    interpreter = tf.lite.Interpreter(model_path=model_path)
+    interpreter.allocate_tensors()
+
+    # Get input and output tensors.
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    # Test the model on random input data.
+    for inp, inp_det in zip(inputs, input_details):
+        interpreter.set_tensor(inp_det["index"], np.array(inp[None, ...], dtype=dtype))
+
+    interpreter.invoke()
+
+    # The function `get_tensor()` returns a copy of the tensor data.
+    # Use `tensor()` in order to get a pointer to the tensor.
+    outputs = [interpreter.get_tensor(out["index"]) for out in output_details]
+
+    return outputs
+#----------
+
 if __name__ == "__main__":
 
     img_file_buffer = st.camera_input("Take a picture")
@@ -334,19 +394,44 @@ if __name__ == "__main__":
                 model = load_model(sess, 'INC', '3A4Bh-Ref25', logger)
 
                 left_eye = cut_image(cv2_img, 70, 114)
+                left_eye_copy = left_eye.copy()
                 left_eye = run_me(left_eye, model, sess)
 
 
                 right_eye = cut_image(cv2_img, 285, 345)
+                right_eye_copy = right_eye.copy()
                 right_eye = run_me(right_eye, model, sess)
 
+
                 st.image(cv2_img)
-                column1, column2 = st.columns(2)
-                with column1:
-                    st.write("Left eye")
-                    st.image(left_eye, width=200)
-                with column2:
-                    st.write("Right eye")
-                    st.image(right_eye, width=200)
+
+
+
+            # draw point on the big picture
+
+            #st.image(cv2_img)
+            #st.write("shape=",left_eye_copy.shape)
+            eye_contours, iris_landmarks = detect_iris(left_eye_copy, is_right_eye=False)
+            left_eye_old = draw_point(left_eye_copy, iris_landmarks)
+
+            eye_contours, iris_landmarks = detect_iris(right_eye_copy, is_right_eye=True)
+            right_eye_old = draw_point(right_eye_copy, iris_landmarks)
+
+
+
+            column1, column2 = st.columns(2)
+            with column1:
+                st.write("Left eye")
+                st.write("New Model")
+                st.image(left_eye, width=200)
+                st.write("Old Model")
+                st.image(left_eye_old, width=200)
+
+            with column2:
+                st.write("Right eye")
+                st.write("New Model")
+                st.image(right_eye, width=200)
+                st.write("Old Model")
+                st.image(right_eye_old, width=200)
 
     #run_me('INC', '3A4Bh-Ref25', logger)
